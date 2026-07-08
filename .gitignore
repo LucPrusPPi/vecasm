@@ -1,0 +1,12 @@
+/build/
+/cmake-build/
+/out/
+/tools/nasm/
+/tools/*.zip
+.vs/
+*.user
+*.obj
+*.lib
+*.exe
+*.pdb
+.DS_Store
