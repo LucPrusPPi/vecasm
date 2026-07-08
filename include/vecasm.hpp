@@ -10,6 +10,8 @@ namespace vecasm {
 
 inline std::uint32_t caps() { return vecasm_caps(); }
 inline int set_backend(int mode) { return vecasm_set_backend(mode); }
+inline int best_backend() { return vecasm_best_backend(); }
+inline const char *backend_name(int mode) { return vecasm_backend_name(mode); }
 
 inline float dot(std::span<const float> a, std::span<const float> b) {
     const std::size_t n = a.size() < b.size() ? a.size() : b.size();

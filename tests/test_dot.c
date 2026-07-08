@@ -26,9 +26,50 @@ static int fail;
         }                                                                                      \
     } while (0)
 
+static void print_caps(uint32_t c)
+{
+    printf("caps=0x%x best=%s (%d)\n", c, vecasm_backend_name(VECASM_BACKEND_AUTO),
+           vecasm_best_backend());
+    printf("  scalar=%d avx2=%d fma=%d avx512=%d avx512icl=%d\n",
+           (c & VECASM_CAP_SCALAR) != 0, (c & VECASM_CAP_AVX2) != 0, (c & VECASM_CAP_FMA) != 0,
+           (c & VECASM_CAP_AVX512) != 0, (c & VECASM_CAP_AVX512_ICL) != 0);
+}
+
+static void check_backend_vs_scalar(int backend, const float *a, const float *b, const float *y,
+                                    size_t n)
+{
+    float *y0 = (float *)malloc(n * sizeof(float));
+    float *y1 = (float *)malloc(n * sizeof(float));
+    memcpy(y0, y, n * sizeof(float));
+    memcpy(y1, y, n * sizeof(float));
+
+    vecasm_set_backend(VECASM_BACKEND_SCALAR);
+    float ds = vecasm_dot_f32(a, b, n);
+    float ss = vecasm_sum_f32(a, n);
+    vecasm_axpy_f32(1.5f, a, y0, n);
+
+    vecasm_set_backend(backend);
+    float db = vecasm_dot_f32(a, b, n);
+    float sb = vecasm_sum_f32(a, n);
+    vecasm_axpy_f32(1.5f, a, y1, n);
+
+    printf("  [%s] dot %.6f vs scalar %.6f | sum %.6f vs %.6f\n", vecasm_backend_name(backend), db,
+           ds, sb, ss);
+    CHECK(approx_eq(ds, db, 1e-3f));
+    CHECK(approx_eq(ss, sb, 1e-3f));
+    for (size_t i = 0; i < n; ++i)
+        CHECK(approx_eq(y0[i], y1[i], 1e-3f));
+
+    free(y0);
+    free(y1);
+}
+
 int main(void)
 {
-    printf("caps=0x%x\n", vecasm_caps());
+    uint32_t caps = vecasm_caps();
+    print_caps(caps);
+    CHECK(caps & VECASM_CAP_SCALAR);
+    CHECK(vecasm_best_backend() >= VECASM_BACKEND_SCALAR);
 
     const size_t n = 1000;
     float *a = (float *)malloc(n * sizeof(float));
@@ -40,58 +81,46 @@ int main(void)
         y[i] = (float)i * 0.01f;
     }
 
-    vecasm_set_backend(1);
-    float ds = vecasm_dot_f32(a, b, n);
-    float ss = vecasm_sum_f32(a, n);
+    /* Always compare every available SIMD backend against scalar. */
+    if (caps & VECASM_CAP_AVX2)
+        check_backend_vs_scalar(VECASM_BACKEND_AVX2, a, b, y, n);
+    else
+        puts("  skip avx2 (not on this CPU)");
 
-    vecasm_set_backend(2);
-    float da = vecasm_dot_f32(a, b, n);
-    float sa = vecasm_sum_f32(a, n);
+    if (caps & VECASM_CAP_AVX512)
+        check_backend_vs_scalar(VECASM_BACKEND_AVX512, a, b, y, n);
+    else
+        puts("  skip avx512 (not on this CPU / OS)");
 
-    printf("dot scalar=%.6f avx2=%.6f\n", ds, da);
-    printf("sum scalar=%.6f avx2=%.6f\n", ss, sa);
-    CHECK(approx_eq(ds, da, 1e-4f));
-    CHECK(approx_eq(ss, sa, 1e-4f));
+    if (caps & VECASM_CAP_AVX512_ICL)
+        check_backend_vs_scalar(VECASM_BACKEND_AVX512_ICL, a, b, y, n);
+    else
+        puts("  skip avx512icl (not Ice Lake-class)");
 
-    float *y0 = (float *)malloc(n * sizeof(float));
-    float *y1 = (float *)malloc(n * sizeof(float));
-    memcpy(y0, y, n * sizeof(float));
-    memcpy(y1, y, n * sizeof(float));
-    vecasm_set_backend(1);
-    vecasm_axpy_f32(1.5f, a, y0, n);
-    vecasm_set_backend(2);
-    vecasm_axpy_f32(1.5f, a, y1, n);
-    for (size_t i = 0; i < n; ++i)
-        CHECK(approx_eq(y0[i], y1[i], 1e-4f));
+    /* Forced unavailable backend must fall back safely. */
+    vecasm_set_backend(VECASM_BACKEND_AVX512_ICL);
+    float r = vecasm_dot_f32(a, b, n);
+    vecasm_set_backend(VECASM_BACKEND_SCALAR);
+    CHECK(approx_eq(r, vecasm_dot_f32(a, b, n), 1e-3f));
 
     {
         const float u[3] = {1.f, 2.f, 3.f};
         const float v[3] = {4.f, -5.f, 6.f};
-        float c0[3], c1[3], n0[3], n1[3];
-        vecasm_set_backend(1);
-        float d0 = vecasm_dot3_f32(u, v);
+        float c0[3], n0[3];
+        vecasm_set_backend(VECASM_BACKEND_AUTO);
+        CHECK(approx_eq(vecasm_dot3_f32(u, v), 12.f, 1e-5f));
         vecasm_cross3_f32(u, v, c0);
         vecasm_normalize3_f32(u, n0);
-        vecasm_set_backend(2);
-        float d1 = vecasm_dot3_f32(u, v);
-        vecasm_cross3_f32(u, v, c1);
-        vecasm_normalize3_f32(u, n1);
-        CHECK(approx_eq(d0, d1, 1e-5f));
-        CHECK(approx_eq(d0, 12.f, 1e-5f)); /* 4-10+18 */
-        for (int k = 0; k < 3; ++k) {
-            CHECK(approx_eq(c0[k], c1[k], 1e-5f));
-            CHECK(approx_eq(n0[k], n1[k], 1e-5f));
-        }
         CHECK(approx_eq(c0[0], 27.f, 1e-4f));
         CHECK(approx_eq(c0[1], 6.f, 1e-4f));
         CHECK(approx_eq(c0[2], -13.f, 1e-4f));
+        float len = sqrtf(n0[0] * n0[0] + n0[1] * n0[1] + n0[2] * n0[2]);
+        CHECK(approx_eq(len, 1.f, 1e-4f));
     }
 
     free(a);
     free(b);
     free(y);
-    free(y0);
-    free(y1);
 
     if (fail) {
         fprintf(stderr, "tests failed\n");

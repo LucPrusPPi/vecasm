@@ -40,6 +40,12 @@ set(VECASM_ASM_SOURCES
   asm/x86_64/dot_f32_avx2.asm
   asm/x86_64/sum_f32_avx2.asm
   asm/x86_64/axpy_f32_avx2.asm
+  asm/x86_64/dot_f32_avx512.asm
+  asm/x86_64/sum_f32_avx512.asm
+  asm/x86_64/axpy_f32_avx512.asm
+  asm/x86_64/dot_f32_avx512icl.asm
+  asm/x86_64/sum_f32_avx512icl.asm
+  asm/x86_64/axpy_f32_avx512icl.asm
   asm/x86_64/dot3_f32.asm
   asm/x86_64/cross3_f32.asm
   asm/x86_64/normalize3_f32.asm
@@ -56,9 +62,7 @@ target_include_directories(vecasm PUBLIC
 )
 target_compile_definitions(vecasm PRIVATE
   $<$<COMPILE_LANGUAGE:C>:VECASM_BUILD>
-  $<$<COMPILE_LANGUAGE:C>:VECASM_HAS_AVX2_ASM=1>
   $<$<COMPILE_LANGUAGE:CXX>:VECASM_BUILD>
-  $<$<COMPILE_LANGUAGE:CXX>:VECASM_HAS_AVX2_ASM=1>
 )
 if(MSVC)
   target_compile_options(vecasm PRIVATE
