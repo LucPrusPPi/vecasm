@@ -1,23 +1,30 @@
 # vecasm
 
-Hand-written **NASM** dense float kernels with **runtime CPU dispatch**. C API + thin C++ wrapper.
+Hand-written **NASM** dense float kernels with **runtime dispatch + micro-benchmark calibration**. C API + thin C++ wrapper.
 
 Cross-platform x86_64: Windows (Win64 ABI), Linux/macOS (System V).
 
-## Advantage: one binary, best path per CPU
+## Advantage: pick what is actually fast on this machine
 
-At startup (first call) vecasm probes CPUID + XGETBV and picks the fastest safe backend:
+1. **Detect** what the CPU/OS can run (CPUID + XGETBV).
+2. **Calibrate** (lazy on first AUTO call, or `vecasm_calibrate()`): time available backends on small / mid / large `dot` sizes and store winners per size tier.
+3. **Dispatch** AUTO calls by length: not a blind ISA ladder.
 
-| Backend | When |
-|---------|------|
+| Backend | Capability gate |
+|---------|-----------------|
 | `scalar` | always |
-| `avx2` | AVX2 + OS YMM state |
-| `avx512` | AVX-512F + OS ZMM state |
-| `avx512icl` | Ice Lake class: AVX-512F + VNNI + VBMI2 (Ice Lake / Xeon Gold 3rd gen) |
+| `avx2` | AVX2 + OS YMM |
+| `avx512` | AVX-512F + OS ZMM |
+| `avx512icl` | **GenuineIntel** + FMA + VNNI + VBMI2 (Ice Lake / Xeon Gold 3rd gen). AMD with the same bits is **not** tagged ICL. |
 
-Auto priority: **icl > avx512 > avx2 > scalar**. Force with `vecasm_set_backend`. Inspect with `vecasm_caps`, `vecasm_best_backend`, `vecasm_backend_name`.
+Force with `vecasm_set_backend`. Unavailable force falls back safely.
 
-Unavailable forced backends fall back safely (no illegal instruction).
+Inspect:
+
+- `vecasm_caps`
+- `vecasm_best_backend` (calibrated mid-size winner)
+- `vecasm_active_backend` / `vecasm_active_backend_n` (effective after fallback / by `n`)
+- `vecasm_backend_name`
 
 ## API
 
@@ -31,7 +38,11 @@ Unavailable forced backends fall back safely (no illegal instruction).
 
 ```c
 #include <vecasm.h>
-printf("best=%s caps=0x%x\n", vecasm_backend_name(0), vecasm_caps());
+vecasm_calibrate();
+printf("best=%s active_1M=%s caps=0x%x\n",
+       vecasm_backend_name(vecasm_best_backend()),
+       vecasm_backend_name(vecasm_active_backend_n(1u<<20)),
+       vecasm_caps());
 float s = vecasm_dot_f32(a, b, n);
 ```
 
@@ -40,11 +51,9 @@ float s = vecasm_dot_f32(a, b, n);
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
-./build/vecasm_test_dot    # compares every available backend vs scalar
+./build/vecasm_test_dot
 ./build/vecasm_bench_dot
 ```
-
-Tests skip AVX-512 / ICL paths when the host CPU lacks them. To validate those kernels, run the same binary on Ice Lake / Xeon Gold 3rd gen (or an AVX-512 sandbox).
 
 ## License
 

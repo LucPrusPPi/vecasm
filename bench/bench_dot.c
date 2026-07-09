@@ -62,7 +62,13 @@ int main(int argc, char **argv)
         iters = atoi(argv[2]);
 
     uint32_t caps = vecasm_caps();
-    printf("caps=0x%x best=%s\n", caps, vecasm_backend_name(VECASM_BACKEND_AUTO));
+    vecasm_calibrate();
+    printf("caps=0x%x best=%s\n", caps, vecasm_backend_name(vecasm_best_backend()));
+    printf("auto by n: 64=%s 1K=%s 64K=%s 1M=%s\n",
+           vecasm_backend_name(vecasm_active_backend_n(64)),
+           vecasm_backend_name(vecasm_active_backend_n(1024)),
+           vecasm_backend_name(vecasm_active_backend_n(65536)),
+           vecasm_backend_name(vecasm_active_backend_n(1048576)));
 
     float *a = (float *)xalign(n * sizeof(float), 64);
     float *b = (float *)xalign(n * sizeof(float), 64);
