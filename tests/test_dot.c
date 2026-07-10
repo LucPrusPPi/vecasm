@@ -75,12 +75,19 @@ int main(void)
     CHECK(caps & VECASM_CAP_SCALAR);
 
     vecasm_calibrate();
-    printf("calibrated best(mid)=%s active=%s\n", vecasm_backend_name(vecasm_best_backend()),
-           vecasm_backend_name(vecasm_active_backend()));
-    printf("  tier n=64 -> %s | n=1K -> %s | n=1M -> %s\n",
-           vecasm_backend_name(vecasm_active_backend_n(64)),
-           vecasm_backend_name(vecasm_active_backend_n(1024)),
-           vecasm_backend_name(vecasm_active_backend_n(1048576)));
+    printf("calibrated best(mid dot)=%s\n", vecasm_backend_name(vecasm_best_backend()));
+    printf("  n=1K  dot=%s sum=%s axpy=%s\n",
+           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_DOT, 1024)),
+           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_SUM, 1024)),
+           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_AXPY, 1024)));
+    printf("  n=1M  dot=%s sum=%s axpy=%s\n",
+           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_DOT, 1048576)),
+           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_SUM, 1048576)),
+           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_AXPY, 1048576)));
+    printf("  n=16M dot=%s sum=%s axpy=%s\n",
+           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_DOT, 1u << 24)),
+           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_SUM, 1u << 24)),
+           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_AXPY, 1u << 24)));
 
     const size_t n = 1000;
     float *a = (float *)malloc(n * sizeof(float));
@@ -127,8 +134,20 @@ int main(void)
         vecasm_cross3_f32(u, v, c0);
         vecasm_normalize3_f32(u, n0);
         CHECK(approx_eq(c0[0], 27.f, 1e-4f));
+        CHECK(approx_eq(c0[1], 6.f, 1e-4f));
+        CHECK(approx_eq(c0[2], -13.f, 1e-4f));
         float len = sqrtf(n0[0] * n0[0] + n0[1] * n0[1] + n0[2] * n0[2]);
         CHECK(approx_eq(len, 1.f, 1e-4f));
+    }
+
+    /* Tiny AUTO / vec3 must not require prior calibrate and stay fast-path capable. */
+    {
+        vecasm_set_backend(VECASM_BACKEND_AUTO);
+        /* Reset calibrate flag indirectly: new process only; here just ensure tiny works. */
+        float tiny_a[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+        float tiny_b[8] = {8, 7, 6, 5, 4, 3, 2, 1};
+        float r = vecasm_dot_f32(tiny_a, tiny_b, 8);
+        CHECK(approx_eq(r, 120.f, 1e-4f));
     }
 
     free(a);

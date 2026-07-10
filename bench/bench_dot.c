@@ -64,11 +64,14 @@ int main(int argc, char **argv)
     uint32_t caps = vecasm_caps();
     vecasm_calibrate();
     printf("caps=0x%x best=%s\n", caps, vecasm_backend_name(vecasm_best_backend()));
-    printf("auto by n: 64=%s 1K=%s 64K=%s 1M=%s\n",
-           vecasm_backend_name(vecasm_active_backend_n(64)),
+    printf("auto by n: 1K=%s 1M=%s 16M=%s\n",
            vecasm_backend_name(vecasm_active_backend_n(1024)),
-           vecasm_backend_name(vecasm_active_backend_n(65536)),
-           vecasm_backend_name(vecasm_active_backend_n(1048576)));
+           vecasm_backend_name(vecasm_active_backend_n(1048576)),
+           vecasm_backend_name(vecasm_active_backend_n(1u << 24)));
+    printf("ops@1M: dot=%s sum=%s axpy=%s\n",
+           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_DOT, 1048576)),
+           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_SUM, 1048576)),
+           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_AXPY, 1048576)));
 
     float *a = (float *)xalign(n * sizeof(float), 64);
     float *b = (float *)xalign(n * sizeof(float), 64);

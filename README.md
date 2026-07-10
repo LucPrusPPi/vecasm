@@ -1,49 +1,29 @@
 # vecasm
 
-Hand-written **NASM** dense float kernels with **runtime dispatch + micro-benchmark calibration**. C API + thin C++ wrapper.
+Hand-written **NASM** dense float kernels with **thread-safe calibrated dispatch**. C API + thin C++ wrapper.
 
 Cross-platform x86_64: Windows (Win64 ABI), Linux/macOS (System V).
 
-## Advantage: pick what is actually fast on this machine
+## Advantage
 
-1. **Detect** what the CPU/OS can run (CPUID + XGETBV).
-2. **Calibrate** (lazy on first AUTO call, or `vecasm_calibrate()`): time available backends on small / mid / large `dot` sizes and store winners per size tier.
-3. **Dispatch** AUTO calls by length: not a blind ISA ladder.
+1. **Detect** CPU/OS features (CPUID + XGETBV). `avx512icl` only on **GenuineIntel** + FMA + VNNI + VBMI2.
+2. **Calibrate** per `{dot,sum,axpy} x {S,M,L,XL}` with interleaved samples and **median** of 5.
+3. **Dispatch** AUTO by operation and length. Tiny calls (`n < 256`) and `vec3` use ISA fallback and **never** trigger the ~tens-of-ms calibrate.
 
-| Backend | Capability gate |
-|---------|-----------------|
-| `scalar` | always |
-| `avx2` | AVX2 + OS YMM |
-| `avx512` | AVX-512F + OS ZMM |
-| `avx512icl` | **GenuineIntel** + FMA + VNNI + VBMI2 (Ice Lake / Xeon Gold 3rd gen). AMD with the same bits is **not** tagged ICL. |
-
-Force with `vecasm_set_backend`. Unavailable force falls back safely.
-
-Inspect:
-
-- `vecasm_caps`
-- `vecasm_best_backend` (calibrated mid-size winner)
-- `vecasm_active_backend` / `vecasm_active_backend_n` (effective after fallback / by `n`)
-- `vecasm_backend_name`
+Force with `vecasm_set_backend`. Fallback is safe. Inspect with `vecasm_caps`, `vecasm_active_backend_for(op,n)`, `vecasm_calibrate`.
 
 ## API
 
 | Kernel | Meaning |
 |--------|---------|
-| `vecasm_dot_f32` | sum `a[i]*b[i]` |
-| `vecasm_sum_f32` | sum `a[i]` |
-| `vecasm_axpy_f32` | `y[i] += alpha * x[i]` |
-| `vecasm_norm2_f32` | `sqrt(dot(a,a))` |
-| `vecasm_dot3_f32` / `cross3` / `normalize3` | tight vec3 |
+| `vecasm_dot_f32` / `sum` / `axpy` / `norm2` | dense |
+| `vecasm_dot3_f32` / `cross3` / `normalize3` | vec3 |
+| `vecasm_calibrate` | explicit timing table rebuild (thread-safe) |
+| `vecasm_active_backend_for` | effective backend for op + `n` |
 
 ```c
-#include <vecasm.h>
-vecasm_calibrate();
-printf("best=%s active_1M=%s caps=0x%x\n",
-       vecasm_backend_name(vecasm_best_backend()),
-       vecasm_backend_name(vecasm_active_backend_n(1u<<20)),
-       vecasm_caps());
-float s = vecasm_dot_f32(a, b, n);
+vecasm_calibrate(); /* optional; also lazy on first AUTO dense n>=256 */
+printf("%s\n", vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_SUM, 1u<<24)));
 ```
 
 ## Build
@@ -59,4 +39,4 @@ cmake --build build
 
 **vecasm Attribution License** (`LICENSE` + `NOTICE`).
 
-Credit required: `LucPrusPPi (https://github.com/LucPrusPPi/vecasm)`. Do not hide origin.
+Credit: `LucPrusPPi (https://github.com/LucPrusPPi/vecasm)`. Do not hide origin.

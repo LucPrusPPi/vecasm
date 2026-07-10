@@ -81,8 +81,8 @@ set_source_files_properties(${VECASM_ASM_SOURCES} PROPERTIES COMPILE_FLAGS "")
 add_library(vecasm::vecasm ALIAS vecasm)
 
 if(NOT MSVC)
-  # sqrtf/sqrt live in libm; propagate to all link consumers (tests, bench, apps).
-  target_link_libraries(vecasm PUBLIC m)
+  find_package(Threads REQUIRED)
+  target_link_libraries(vecasm PUBLIC m Threads::Threads)
 endif()
 
 if(VECASM_BUILD_TESTS)

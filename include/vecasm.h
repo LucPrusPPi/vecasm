@@ -18,13 +18,12 @@ extern "C" {
 #  define VECASM_API
 #endif
 
-/* Runtime capability flags (bitmask). Detected once via CPUID + XGETBV. */
 enum {
     VECASM_CAP_SCALAR     = 1u << 0,
     VECASM_CAP_AVX2       = 1u << 1,
     VECASM_CAP_FMA        = 1u << 2,
-    VECASM_CAP_AVX512     = 1u << 3, /* AVX-512F + OS ZMM state */
-    /* Intel Ice Lake / Ice Lake-SP only: FMA + VNNI + VBMI2 (not AMD with same bits). */
+    VECASM_CAP_AVX512     = 1u << 3,
+    /* GenuineIntel + FMA + VNNI + VBMI2 only (Ice Lake / Xeon Gold 3rd gen). */
     VECASM_CAP_AVX512_ICL = 1u << 4
 };
 
@@ -36,27 +35,35 @@ enum {
     VECASM_BACKEND_AVX512_ICL = 4
 };
 
+/* Dense op ids for per-operation dispatch tables. */
+enum {
+    VECASM_OP_DOT  = 0,
+    VECASM_OP_SUM  = 1,
+    VECASM_OP_AXPY = 2
+};
+
 VECASM_API uint32_t vecasm_caps(void);
 
-/* Force backend. Returns previous mode. Unavailable force falls back at call time. */
 VECASM_API int vecasm_set_backend(int mode);
 
-/*
- * Auto path: after micro-benchmark calibration, backend chosen for a mid-size
- * working set. Not a raw ISA priority list.
- */
+/* Calibrated mid-size DOT winner (or ISA fallback before calibrate). */
 VECASM_API int vecasm_best_backend(void);
 
-/* Effective backend after force+fallback (mid-size if AUTO). */
+/* Effective backend after force+fallback (DOT mid-tier if AUTO). */
 VECASM_API int vecasm_active_backend(void);
 
-/* Effective backend for length n (AUTO uses size tiers from calibration). */
+/* AUTO: calibrated DOT winner for length n. */
 VECASM_API int vecasm_active_backend_n(size_t n);
 
-/* Run / re-run timing calibration (also done lazily on first AUTO dense call). */
+/* AUTO: calibrated winner for operation + length. */
+VECASM_API int vecasm_active_backend_for(int op, size_t n);
+
+/*
+ * Micro-benchmark calibration (thread-safe). Also runs lazily on the first
+ * AUTO dense call with n >= 256. Tiny calls / vec3 never trigger it.
+ */
 VECASM_API void vecasm_calibrate(void);
 
-/* Name of a backend id. For AUTO, uses vecasm_best_backend(). */
 VECASM_API const char *vecasm_backend_name(int mode);
 
 VECASM_API float  vecasm_dot_f32(const float *a, const float *b, size_t n);
