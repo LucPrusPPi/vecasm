@@ -88,6 +88,10 @@ int main(void)
            vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_DOT, 1u << 24)),
            vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_SUM, 1u << 24)),
            vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_AXPY, 1u << 24)));
+    printf("  n=4M  dot=%s sum=%s axpy=%s\n",
+           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_DOT, 4194304)),
+           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_SUM, 4194304)),
+           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_AXPY, 4194304)));
 
     const size_t n = 1000;
     float *a = (float *)malloc(n * sizeof(float));

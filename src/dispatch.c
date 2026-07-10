@@ -44,15 +44,42 @@ void   vecasm_cross3_f32_scalar(const float a[3], const float b[3], float out[3]
 void   vecasm_normalize3_f32_scalar(const float in[3], float out[3]);
 
 enum { OP_COUNT = 3 };
-enum { TIER_S = 0, TIER_M = 1, TIER_L = 2, TIER_XL = 3, TIER_COUNT = 4 };
+enum { TIER_S = 0, TIER_M = 1, TIER_L = 2, TIER_XL = 3, TIER_XXL = 4, TIER_COUNT = 5 };
 enum { CAL_SAMPLES = 5 };
 enum { CAL_N_MIN = 256 }; /* tiny AUTO calls skip lazy calibrate */
 
+typedef struct vecasm_cal_snap {
+    int table[OP_COUNT][TIER_COUNT];
+} vecasm_cal_snap;
+
 static uint32_t g_caps;
 static int g_caps_ready;
-static int g_calibrated;
-/* [op][tier] winners published after calibration. */
-static int g_table[OP_COUNT][TIER_COUNT];
+/* Immutable published calibration; NULL until first successful calibrate. */
+#if defined(_WIN32)
+static volatile PVOID g_snap;
+#else
+static _Atomic(vecasm_cal_snap *) g_snap;
+#endif
+
+static vecasm_cal_snap *snap_load(void)
+{
+#if defined(_WIN32)
+    return (vecasm_cal_snap *)InterlockedCompareExchangePointer(&g_snap, NULL, NULL);
+#else
+    return atomic_load_explicit(&g_snap, memory_order_acquire);
+#endif
+}
+
+/* Publish immutable snapshot. Previous snap is leaked (calibrate is rare; readers may hold it). */
+static void snap_publish(vecasm_cal_snap *fresh)
+{
+#if defined(_WIN32)
+    (void)InterlockedExchangePointer(&g_snap, fresh);
+#else
+    vecasm_cal_snap *old = atomic_exchange_explicit(&g_snap, fresh, memory_order_acq_rel);
+    (void)old;
+#endif
+}
 
 #if defined(_WIN32)
 static INIT_ONCE g_caps_once = INIT_ONCE_STATIC_INIT;
@@ -277,7 +304,9 @@ static int tier_for(size_t n)
         return TIER_M;
     if (n <= 1500000u)
         return TIER_L;
-    return TIER_XL;
+    if (n <= 6000000u)
+        return TIER_XL;
+    return TIER_XXL;
 }
 
 static void collect_candidates(int *out, int *nout)
@@ -372,8 +401,13 @@ static void fill_isa_table(int table[OP_COUNT][TIER_COUNT])
 
 static void run_calibrate_unlocked(void)
 {
-    static const size_t tier_n[TIER_COUNT] = {1024u, 65536u, 1048576u, 4194304u};
-    static const int tier_iters[TIER_COUNT] = {500, 32, 8, 3};
+    /* S/M/L/XL/XXL — XXL at 16M so huge working sets get their own pick. */
+    static const size_t tier_n_full[TIER_COUNT] = {1024u, 65536u, 1048576u, 4194304u, 16777216u};
+    static const int tier_iters_full[TIER_COUNT] = {500, 32, 8, 3, 2};
+    size_t tier_n[TIER_COUNT];
+    int tier_iters[TIER_COUNT];
+    memcpy(tier_n, tier_n_full, sizeof(tier_n));
+    memcpy(tier_iters, tier_iters_full, sizeof(tier_iters));
 
     int local[OP_COUNT][TIER_COUNT];
     fill_isa_table(local);
@@ -384,15 +418,27 @@ static void run_calibrate_unlocked(void)
     if (nc <= 1)
         goto publish;
 
-    const size_t max_n = tier_n[TIER_COUNT - 1];
+    size_t max_n = tier_n[TIER_COUNT - 1];
     float *a = (float *)align64(max_n * sizeof(float));
     float *b = (float *)align64(max_n * sizeof(float));
     float *y = (float *)align64(max_n * sizeof(float));
+    int tiers = TIER_COUNT;
     if (!a || !b || !y) {
         free64(a);
         free64(b);
         free64(y);
-        goto publish;
+        /* Fall back: skip XXL if 16M alloc fails. */
+        max_n = tier_n[TIER_XL];
+        tiers = TIER_XL + 1;
+        a = (float *)align64(max_n * sizeof(float));
+        b = (float *)align64(max_n * sizeof(float));
+        y = (float *)align64(max_n * sizeof(float));
+        if (!a || !b || !y) {
+            free64(a);
+            free64(b);
+            free64(y);
+            goto publish;
+        }
     }
     for (size_t i = 0; i < max_n; ++i) {
         a[i] = (float)((i * 13) % 97) * 0.01f + 0.01f;
@@ -400,11 +446,10 @@ static void run_calibrate_unlocked(void)
         y[i] = (float)((i * 3) % 53) * 0.01f;
     }
 
-    for (int t = 0; t < TIER_COUNT; ++t) {
+    for (int t = 0; t < tiers; ++t) {
         size_t n = tier_n[t];
         int iters = tier_iters[t];
 
-        /* ---- DOT (interleaved samples -> median) ---- */
         {
             double samples[4][CAL_SAMPLES];
             volatile float sink = 0.f;
@@ -432,7 +477,6 @@ static void run_calibrate_unlocked(void)
             local[VECASM_OP_DOT][t] = win;
         }
 
-        /* ---- SUM ---- */
         {
             double samples[4][CAL_SAMPLES];
             volatile float sink = 0.f;
@@ -460,7 +504,6 @@ static void run_calibrate_unlocked(void)
             local[VECASM_OP_SUM][t] = win;
         }
 
-        /* ---- AXPY ---- */
         {
             double samples[4][CAL_SAMPLES];
             for (int ci = 0; ci < nc; ++ci) {
@@ -490,40 +533,46 @@ static void run_calibrate_unlocked(void)
         }
     }
 
+    /* If XXL was skipped, copy XL winners. */
+    if (tiers < TIER_COUNT) {
+        for (int o = 0; o < OP_COUNT; ++o)
+            local[o][TIER_XXL] = local[o][TIER_XL];
+    }
+
     free64(a);
     free64(b);
     free64(y);
 
-publish:
-    memcpy(g_table, local, sizeof(local));
-#if defined(_WIN32)
-    MemoryBarrier();
-#else
-    atomic_thread_fence(memory_order_release);
-#endif
-    g_calibrated = 1;
+publish: {
+    vecasm_cal_snap *fresh = (vecasm_cal_snap *)malloc(sizeof(*fresh));
+    if (!fresh)
+        return;
+    memcpy(fresh->table, local, sizeof(local));
+    snap_publish(fresh);
+}
 }
 
 static void ensure_calibrated(void)
 {
     ensure_caps();
-    if (g_calibrated)
+    if (snap_load())
         return;
     cal_lock();
-    if (!g_calibrated)
+    if (!snap_load())
         run_calibrate_unlocked();
     cal_unlock();
 }
 
 static int table_get(int op, int tier)
 {
-    if (!g_calibrated)
+    const vecasm_cal_snap *s = snap_load();
+    if (!s)
         return isa_fallback_best();
     if (op < 0 || op >= OP_COUNT)
         op = VECASM_OP_DOT;
     if (tier < 0 || tier >= TIER_COUNT)
         tier = TIER_M;
-    return g_table[op][tier];
+    return s->table[op][tier];
 }
 
 static int dense_backend(int op, size_t n)
@@ -533,11 +582,11 @@ static int dense_backend(int op, size_t n)
     if (want != VECASM_BACKEND_AUTO)
         return resolve_forced(want);
 
-    /* Tiny AUTO: ISA fallback, do not pay ~20ms calibrate. */
-    if (!g_calibrated && n < (size_t)CAL_N_MIN)
+    /* Tiny AUTO: ISA fallback, do not pay full calibrate. */
+    if (!snap_load() && n < (size_t)CAL_N_MIN)
         return isa_fallback_best();
 
-    if (!g_calibrated)
+    if (!snap_load())
         ensure_calibrated();
     return table_get(op, tier_for(n));
 }
@@ -552,7 +601,7 @@ void vecasm_calibrate(void)
 {
     ensure_caps();
     cal_lock();
-    g_calibrated = 0;
+    /* Never clear the published snap first — build then swap atomically. */
     run_calibrate_unlocked();
     cal_unlock();
 }
@@ -560,7 +609,7 @@ void vecasm_calibrate(void)
 int vecasm_best_backend(void)
 {
     ensure_caps();
-    if (!g_calibrated)
+    if (!snap_load())
         return isa_fallback_best();
     return table_get(VECASM_OP_DOT, TIER_M);
 }
@@ -571,7 +620,7 @@ int vecasm_active_backend(void)
     int want = backend_load();
     if (want != VECASM_BACKEND_AUTO)
         return resolve_forced(want);
-    if (!g_calibrated)
+    if (!snap_load())
         return isa_fallback_best();
     return table_get(VECASM_OP_DOT, TIER_M);
 }

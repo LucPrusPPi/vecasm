@@ -7,8 +7,8 @@ Cross-platform x86_64: Windows (Win64 ABI), Linux/macOS (System V).
 ## Advantage
 
 1. **Detect** CPU/OS features (CPUID + XGETBV). `avx512icl` only on **GenuineIntel** + FMA + VNNI + VBMI2.
-2. **Calibrate** per `{dot,sum,axpy} x {S,M,L,XL}` with interleaved samples and **median** of 5.
-3. **Dispatch** AUTO by operation and length. Tiny calls (`n < 256`) and `vec3` use ISA fallback and **never** trigger the ~tens-of-ms calibrate.
+2. **Calibrate** per `{dot,sum,axpy} x {S,M,L,XL,XXL}` (XXL @ 16M) with interleaved samples and **median** of 5. Results publish as an **immutable atomic snapshot** (readers never race writers).
+3. **Dispatch** AUTO by operation and length. Tiny calls (`n < 256`) and `vec3` use ISA fallback and **never** trigger calibrate.
 
 Force with `vecasm_set_backend`. Fallback is safe. Inspect with `vecasm_caps`, `vecasm_active_backend_for(op,n)`, `vecasm_calibrate`.
 
