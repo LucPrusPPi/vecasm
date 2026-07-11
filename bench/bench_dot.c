@@ -62,16 +62,19 @@ int main(int argc, char **argv)
         iters = atoi(argv[2]);
 
     uint32_t caps = vecasm_caps();
-    vecasm_calibrate();
-    printf("caps=0x%x best=%s\n", caps, vecasm_backend_name(vecasm_best_backend()));
-    printf("auto by n: 1K=%s 1M=%s 16M=%s\n",
-           vecasm_backend_name(vecasm_active_backend_n(1024)),
-           vecasm_backend_name(vecasm_active_backend_n(1048576)),
-           vecasm_backend_name(vecasm_active_backend_n(1u << 24)));
-    printf("ops@1M: dot=%s sum=%s axpy=%s\n",
-           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_DOT, 1048576)),
-           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_SUM, 1048576)),
-           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_AXPY, 1048576)));
+    printf("caps=0x%x dispatch=isa best=%s\n", caps, vecasm_backend_name(vecasm_best_backend()));
+    if (argc > 3 && atoi(argv[3]) != 0) {
+        vecasm_calibrate();
+        printf("calibrated best=%s\n", vecasm_backend_name(vecasm_best_backend()));
+        printf("auto by n: 1K=%s 1M=%s 16M=%s\n",
+               vecasm_backend_name(vecasm_active_backend_n(1024)),
+               vecasm_backend_name(vecasm_active_backend_n(1048576)),
+               vecasm_backend_name(vecasm_active_backend_n(1u << 24)));
+        printf("ops@1M: dot=%s sum=%s axpy=%s\n",
+               vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_DOT, 1048576)),
+               vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_SUM, 1048576)),
+               vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_AXPY, 1048576)));
+    }
 
     float *a = (float *)xalign(n * sizeof(float), 64);
     float *b = (float *)xalign(n * sizeof(float), 64);

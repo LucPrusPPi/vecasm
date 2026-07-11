@@ -42,25 +42,33 @@ enum {
     VECASM_OP_AXPY = 2
 };
 
+/* How AUTO picks a backend. Default = ISA (no benchmark). */
+enum {
+    VECASM_DISPATCH_ISA        = 0, /* highest supported: icl > avx512 > avx2 > scalar */
+    VECASM_DISPATCH_CALIBRATED = 1  /* use timing table from vecasm_calibrate() */
+};
+
 VECASM_API uint32_t vecasm_caps(void);
 
 VECASM_API int vecasm_set_backend(int mode);
 
-/* Calibrated mid-size DOT winner (or ISA fallback before calibrate). */
+/* Default DISPATCH_ISA. CALIBRATED only after (or once you call) vecasm_calibrate(). */
+VECASM_API int vecasm_set_dispatch(int mode);
+VECASM_API int vecasm_get_dispatch(void);
+
+/* Mid-size DOT winner from calibration table, else ISA pick. */
 VECASM_API int vecasm_best_backend(void);
 
-/* Effective backend after force+fallback (DOT mid-tier if AUTO). */
+/* Effective backend after force+fallback. */
 VECASM_API int vecasm_active_backend(void);
 
-/* AUTO: calibrated DOT winner for length n. */
 VECASM_API int vecasm_active_backend_n(size_t n);
-
-/* AUTO: calibrated winner for operation + length. */
 VECASM_API int vecasm_active_backend_for(int op, size_t n);
 
 /*
- * Micro-benchmark calibration (thread-safe). Also runs lazily on the first
- * AUTO dense call with n >= 256. Tiny calls / vec3 never trigger it.
+ * Optional micro-benchmark (thread-safe, ~0.5s / up to ~192 MiB).
+ * Publishes an immutable table and switches dispatch to CALIBRATED.
+ * Never runs automatically.
  */
 VECASM_API void vecasm_calibrate(void);
 

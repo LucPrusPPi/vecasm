@@ -1,16 +1,24 @@
 # vecasm
 
-Hand-written **NASM** dense float kernels with **thread-safe calibrated dispatch**. C API + thin C++ wrapper.
+Hand-written **NASM** dense float kernels with **runtime ISA dispatch** (optional calibration). C API + thin C++ wrapper.
 
 Cross-platform x86_64: Windows (Win64 ABI), Linux/macOS (System V).
 
 ## Advantage
 
 1. **Detect** CPU/OS features (CPUID + XGETBV). `avx512icl` only on **GenuineIntel** + FMA + VNNI + VBMI2.
-2. **Calibrate** per `{dot,sum,axpy} x {S,M,L,XL,XXL}` (XXL @ 16M) with interleaved samples and **median** of 5. Results publish as an **immutable atomic snapshot** (readers never race writers).
-3. **Dispatch** AUTO by operation and length. Tiny calls (`n < 256`) and `vec3` use ISA fallback and **never** trigger calibrate.
+2. **Default AUTO** = highest supported ISA (`icl > avx512 > avx2 > scalar`). Instant, no heap spike.
+3. **Optional** `vecasm_calibrate()` builds a `{op,tier}` timing table and switches to `VECASM_DISPATCH_CALIBRATED` (~0.5s / up to ~192 MiB). Never runs by itself.
 
-Force with `vecasm_set_backend`. Fallback is safe. Inspect with `vecasm_caps`, `vecasm_active_backend_for(op,n)`, `vecasm_calibrate`.
+```c
+/* game / cheat / latency path */
+vecasm_set_dispatch(VECASM_DISPATCH_ISA); /* default */
+
+/* batch / offline path */
+vecasm_calibrate(); /* also sets DISPATCH_CALIBRATED */
+```
+
+Force a backend with `vecasm_set_backend`. Fallback is safe.
 
 ## API
 
@@ -18,13 +26,8 @@ Force with `vecasm_set_backend`. Fallback is safe. Inspect with `vecasm_caps`, `
 |--------|---------|
 | `vecasm_dot_f32` / `sum` / `axpy` / `norm2` | dense |
 | `vecasm_dot3_f32` / `cross3` / `normalize3` | vec3 |
-| `vecasm_calibrate` | explicit timing table rebuild (thread-safe) |
-| `vecasm_active_backend_for` | effective backend for op + `n` |
-
-```c
-vecasm_calibrate(); /* optional; also lazy on first AUTO dense n>=256 */
-printf("%s\n", vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_SUM, 1u<<24)));
-```
+| `vecasm_set_dispatch` / `get_dispatch` | ISA vs calibrated |
+| `vecasm_calibrate` | optional timing tune |
 
 ## Build
 

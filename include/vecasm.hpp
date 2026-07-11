@@ -14,6 +14,8 @@ inline int best_backend() { return vecasm_best_backend(); }
 inline int active_backend() { return vecasm_active_backend(); }
 inline int active_backend_n(std::size_t n) { return vecasm_active_backend_n(n); }
 inline int active_backend_for(int op, std::size_t n) { return vecasm_active_backend_for(op, n); }
+inline int set_dispatch(int mode) { return vecasm_set_dispatch(mode); }
+inline int get_dispatch() { return vecasm_get_dispatch(); }
 inline void calibrate() { vecasm_calibrate(); }
 inline const char *backend_name(int mode) { return vecasm_backend_name(mode); }
 

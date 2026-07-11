@@ -46,7 +46,6 @@ void   vecasm_normalize3_f32_scalar(const float in[3], float out[3]);
 enum { OP_COUNT = 3 };
 enum { TIER_S = 0, TIER_M = 1, TIER_L = 2, TIER_XL = 3, TIER_XXL = 4, TIER_COUNT = 5 };
 enum { CAL_SAMPLES = 5 };
-enum { CAL_N_MIN = 256 }; /* tiny AUTO calls skip lazy calibrate */
 
 typedef struct vecasm_cal_snap {
     int table[OP_COUNT][TIER_COUNT];
@@ -54,11 +53,13 @@ typedef struct vecasm_cal_snap {
 
 static uint32_t g_caps;
 static int g_caps_ready;
-/* Immutable published calibration; NULL until first successful calibrate. */
+/* Immutable published calibration; NULL until vecasm_calibrate(). */
 #if defined(_WIN32)
 static volatile PVOID g_snap;
+static volatile long g_dispatch; /* VECASM_DISPATCH_* */
 #else
 static _Atomic(vecasm_cal_snap *) g_snap;
+static atomic_int g_dispatch;
 #endif
 
 static vecasm_cal_snap *snap_load(void)
@@ -111,6 +112,8 @@ static void cal_unlock(void) { LeaveCriticalSection(&g_cal_cs); }
 
 static int backend_load(void) { return (int)InterlockedCompareExchange(&g_backend, 0, 0); }
 static void backend_store(int v) { InterlockedExchange(&g_backend, (long)v); }
+static int dispatch_load(void) { return (int)InterlockedCompareExchange(&g_dispatch, 0, 0); }
+static void dispatch_store(int v) { InterlockedExchange(&g_dispatch, (long)v); }
 #else
 static pthread_once_t g_caps_once = PTHREAD_ONCE_INIT;
 static pthread_mutex_t g_cal_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -120,6 +123,8 @@ static void cal_lock(void) { pthread_mutex_lock(&g_cal_mu); }
 static void cal_unlock(void) { pthread_mutex_unlock(&g_cal_mu); }
 static int backend_load(void) { return atomic_load_explicit(&g_backend, memory_order_acquire); }
 static void backend_store(int v) { atomic_store_explicit(&g_backend, v, memory_order_release); }
+static int dispatch_load(void) { return atomic_load_explicit(&g_dispatch, memory_order_acquire); }
+static void dispatch_store(int v) { atomic_store_explicit(&g_dispatch, v, memory_order_release); }
 #endif
 
 static void cpuid_ex(int leaf, int sub, int out[4])
@@ -552,17 +557,6 @@ publish: {
 }
 }
 
-static void ensure_calibrated(void)
-{
-    ensure_caps();
-    if (snap_load())
-        return;
-    cal_lock();
-    if (!snap_load())
-        run_calibrate_unlocked();
-    cal_unlock();
-}
-
 static int table_get(int op, int tier)
 {
     const vecasm_cal_snap *s = snap_load();
@@ -575,6 +569,11 @@ static int table_get(int op, int tier)
     return s->table[op][tier];
 }
 
+static int use_calibrated_table(void)
+{
+    return dispatch_load() == VECASM_DISPATCH_CALIBRATED && snap_load() != NULL;
+}
+
 static int dense_backend(int op, size_t n)
 {
     ensure_caps();
@@ -582,13 +581,10 @@ static int dense_backend(int op, size_t n)
     if (want != VECASM_BACKEND_AUTO)
         return resolve_forced(want);
 
-    /* Tiny AUTO: ISA fallback, do not pay full calibrate. */
-    if (!snap_load() && n < (size_t)CAL_N_MIN)
-        return isa_fallback_best();
-
-    if (!snap_load())
-        ensure_calibrated();
-    return table_get(op, tier_for(n));
+    /* Default: ISA only. Timing table only after explicit calibrate + CALIBRATED mode. */
+    if (use_calibrated_table())
+        return table_get(op, tier_for(n));
+    return isa_fallback_best();
 }
 
 uint32_t vecasm_caps(void)
@@ -597,21 +593,33 @@ uint32_t vecasm_caps(void)
     return g_caps;
 }
 
+int vecasm_set_dispatch(int mode)
+{
+    int prev = dispatch_load();
+    if (mode != VECASM_DISPATCH_ISA && mode != VECASM_DISPATCH_CALIBRATED)
+        mode = VECASM_DISPATCH_ISA;
+    /* CALIBRATED without a table behaves like ISA until calibrate runs. */
+    dispatch_store(mode);
+    return prev;
+}
+
+int vecasm_get_dispatch(void) { return dispatch_load(); }
+
 void vecasm_calibrate(void)
 {
     ensure_caps();
     cal_lock();
-    /* Never clear the published snap first — build then swap atomically. */
     run_calibrate_unlocked();
     cal_unlock();
+    dispatch_store(VECASM_DISPATCH_CALIBRATED);
 }
 
 int vecasm_best_backend(void)
 {
     ensure_caps();
-    if (!snap_load())
-        return isa_fallback_best();
-    return table_get(VECASM_OP_DOT, TIER_M);
+    if (use_calibrated_table())
+        return table_get(VECASM_OP_DOT, TIER_M);
+    return isa_fallback_best();
 }
 
 int vecasm_active_backend(void)
@@ -620,9 +628,9 @@ int vecasm_active_backend(void)
     int want = backend_load();
     if (want != VECASM_BACKEND_AUTO)
         return resolve_forced(want);
-    if (!snap_load())
-        return isa_fallback_best();
-    return table_get(VECASM_OP_DOT, TIER_M);
+    if (use_calibrated_table())
+        return table_get(VECASM_OP_DOT, TIER_M);
+    return isa_fallback_best();
 }
 
 int vecasm_active_backend_n(size_t n)

@@ -73,8 +73,16 @@ int main(void)
     uint32_t caps = vecasm_caps();
     print_caps(caps);
     CHECK(caps & VECASM_CAP_SCALAR);
+    CHECK(vecasm_get_dispatch() == VECASM_DISPATCH_ISA);
+
+    /* Default ISA path: no calibrate, still picks a SIMD backend when available. */
+    vecasm_set_backend(VECASM_BACKEND_AUTO);
+    printf("isa-auto best=%s\n", vecasm_backend_name(vecasm_best_backend()));
+    if (caps & VECASM_CAP_AVX2)
+        CHECK(vecasm_best_backend() != VECASM_BACKEND_SCALAR);
 
     vecasm_calibrate();
+    CHECK(vecasm_get_dispatch() == VECASM_DISPATCH_CALIBRATED);
     printf("calibrated best(mid dot)=%s\n", vecasm_backend_name(vecasm_best_backend()));
     printf("  n=1K  dot=%s sum=%s axpy=%s\n",
            vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_DOT, 1024)),
@@ -88,10 +96,12 @@ int main(void)
            vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_DOT, 1u << 24)),
            vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_SUM, 1u << 24)),
            vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_AXPY, 1u << 24)));
-    printf("  n=4M  dot=%s sum=%s axpy=%s\n",
-           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_DOT, 4194304)),
-           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_SUM, 4194304)),
-           vecasm_backend_name(vecasm_active_backend_for(VECASM_OP_AXPY, 4194304)));
+
+    /* Back to ISA ignores the timing table. */
+    vecasm_set_dispatch(VECASM_DISPATCH_ISA);
+    CHECK(vecasm_get_dispatch() == VECASM_DISPATCH_ISA);
+    printf("back to isa-auto=%s\n", vecasm_backend_name(vecasm_active_backend()));
+    vecasm_set_dispatch(VECASM_DISPATCH_CALIBRATED);
 
     const size_t n = 1000;
     float *a = (float *)malloc(n * sizeof(float));
