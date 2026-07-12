@@ -668,6 +668,75 @@ int vecasm_set_backend(int mode)
     return prev;
 }
 
+static vecasm_dot_f32_fn pick_dot(int be)
+{
+    switch (be) {
+    case VECASM_BACKEND_AVX512_ICL:
+        return vecasm_dot_f32_avx512icl;
+    case VECASM_BACKEND_AVX512:
+        return vecasm_dot_f32_avx512;
+    case VECASM_BACKEND_AVX2:
+        return vecasm_dot_f32_avx2;
+    default:
+        return vecasm_dot_f32_scalar;
+    }
+}
+
+static vecasm_sum_f32_fn pick_sum(int be)
+{
+    switch (be) {
+    case VECASM_BACKEND_AVX512_ICL:
+        return vecasm_sum_f32_avx512icl;
+    case VECASM_BACKEND_AVX512:
+        return vecasm_sum_f32_avx512;
+    case VECASM_BACKEND_AVX2:
+        return vecasm_sum_f32_avx2;
+    default:
+        return vecasm_sum_f32_scalar;
+    }
+}
+
+static vecasm_axpy_f32_fn pick_axpy(int be)
+{
+    switch (be) {
+    case VECASM_BACKEND_AVX512_ICL:
+        return vecasm_axpy_f32_avx512icl;
+    case VECASM_BACKEND_AVX512:
+        return vecasm_axpy_f32_avx512;
+    case VECASM_BACKEND_AVX2:
+        return vecasm_axpy_f32_avx2;
+    default:
+        return vecasm_axpy_f32_scalar;
+    }
+}
+
+vecasm_dot_f32_fn vecasm_resolve_dot_f32(size_t n)
+{
+    return pick_dot(dense_backend(VECASM_OP_DOT, n));
+}
+
+vecasm_sum_f32_fn vecasm_resolve_sum_f32(size_t n)
+{
+    return pick_sum(dense_backend(VECASM_OP_SUM, n));
+}
+
+vecasm_axpy_f32_fn vecasm_resolve_axpy_f32(size_t n)
+{
+    return pick_axpy(dense_backend(VECASM_OP_AXPY, n));
+}
+
+void vecasm_resolve_dense(vecasm_dense_fns *out, size_t n)
+{
+    if (!out)
+        return;
+    out->backend_dot = dense_backend(VECASM_OP_DOT, n);
+    out->backend_sum = dense_backend(VECASM_OP_SUM, n);
+    out->backend_axpy = dense_backend(VECASM_OP_AXPY, n);
+    out->dot = pick_dot(out->backend_dot);
+    out->sum = pick_sum(out->backend_sum);
+    out->axpy = pick_axpy(out->backend_axpy);
+}
+
 float vecasm_dot_f32(const float *a, const float *b, size_t n)
 {
     if (n == 0)

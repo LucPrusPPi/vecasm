@@ -9,25 +9,28 @@ Cross-platform x86_64: Windows (Win64 ABI), Linux/macOS (System V).
 1. **Detect** CPU/OS features (CPUID + XGETBV). `avx512icl` only on **GenuineIntel** + FMA + VNNI + VBMI2.
 2. **Default AUTO** = highest supported ISA (`icl > avx512 > avx2 > scalar`). Instant, no heap spike.
 3. **Optional** `vecasm_calibrate()` builds a `{op,tier}` timing table and switches to `VECASM_DISPATCH_CALIBRATED` (~0.5s / up to ~192 MiB). Never runs by itself.
+4. **Hot path**: `vecasm_resolve_*` / `vecasm_resolve_dense` return direct function pointers (no per-call atomics).
 
 ```c
-/* game / cheat / latency path */
-vecasm_set_dispatch(VECASM_DISPATCH_ISA); /* default */
+vecasm_set_dispatch(VECASM_DISPATCH_ISA); /* default, good for games */
 
-/* batch / offline path */
-vecasm_calibrate(); /* also sets DISPATCH_CALIBRATED */
+vecasm_dense_fns fn;
+vecasm_resolve_dense(&fn, n);
+for (;;)
+    acc += fn.dot(a, b, n);
+
+/* optional offline tune */
+vecasm_calibrate();
 ```
-
-Force a backend with `vecasm_set_backend`. Fallback is safe.
 
 ## API
 
 | Kernel | Meaning |
 |--------|---------|
-| `vecasm_dot_f32` / `sum` / `axpy` / `norm2` | dense |
+| `vecasm_dot_f32` / `sum` / `axpy` / `norm2` | dense (dispatched each call) |
+| `vecasm_resolve_dot/sum/axpy` / `resolve_dense` | bind kernel once |
 | `vecasm_dot3_f32` / `cross3` / `normalize3` | vec3 |
-| `vecasm_set_dispatch` / `get_dispatch` | ISA vs calibrated |
-| `vecasm_calibrate` | optional timing tune |
+| `vecasm_set_dispatch` / `calibrate` | ISA vs calibrated |
 
 ## Build
 

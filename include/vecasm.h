@@ -74,6 +74,25 @@ VECASM_API void vecasm_calibrate(void);
 
 VECASM_API const char *vecasm_backend_name(int mode);
 
+/* Direct kernels (skip per-call dispatch). Resolve once per size class / session. */
+typedef float (*vecasm_dot_f32_fn)(const float *a, const float *b, size_t n);
+typedef float (*vecasm_sum_f32_fn)(const float *a, size_t n);
+typedef void (*vecasm_axpy_f32_fn)(float alpha, const float *x, float *y, size_t n);
+
+typedef struct vecasm_dense_fns {
+    vecasm_dot_f32_fn dot;
+    vecasm_sum_f32_fn sum;
+    vecasm_axpy_f32_fn axpy;
+    int backend_dot;
+    int backend_sum;
+    int backend_axpy;
+} vecasm_dense_fns;
+
+VECASM_API vecasm_dot_f32_fn  vecasm_resolve_dot_f32(size_t n);
+VECASM_API vecasm_sum_f32_fn  vecasm_resolve_sum_f32(size_t n);
+VECASM_API vecasm_axpy_f32_fn vecasm_resolve_axpy_f32(size_t n);
+VECASM_API void               vecasm_resolve_dense(vecasm_dense_fns *out, size_t n);
+
 VECASM_API float  vecasm_dot_f32(const float *a, const float *b, size_t n);
 VECASM_API double vecasm_dot_f64(const double *a, const double *b, size_t n);
 VECASM_API void   vecasm_axpy_f32(float alpha, const float *x, float *y, size_t n);

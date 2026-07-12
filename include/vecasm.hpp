@@ -19,6 +19,11 @@ inline int get_dispatch() { return vecasm_get_dispatch(); }
 inline void calibrate() { vecasm_calibrate(); }
 inline const char *backend_name(int mode) { return vecasm_backend_name(mode); }
 
+inline vecasm_dot_f32_fn resolve_dot(std::size_t n) { return vecasm_resolve_dot_f32(n); }
+inline vecasm_sum_f32_fn resolve_sum(std::size_t n) { return vecasm_resolve_sum_f32(n); }
+inline vecasm_axpy_f32_fn resolve_axpy(std::size_t n) { return vecasm_resolve_axpy_f32(n); }
+inline void resolve_dense(vecasm_dense_fns &out, std::size_t n) { vecasm_resolve_dense(&out, n); }
+
 inline float dot(std::span<const float> a, std::span<const float> b) {
     const std::size_t n = a.size() < b.size() ? a.size() : b.size();
     return vecasm_dot_f32(a.data(), b.data(), n);

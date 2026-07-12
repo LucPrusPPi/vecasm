@@ -164,6 +164,21 @@ int main(void)
         CHECK(approx_eq(r, 120.f, 1e-4f));
     }
 
+    /* Resolve skips per-call atomics in the loop. */
+    {
+        vecasm_set_backend(VECASM_BACKEND_AUTO);
+        vecasm_set_dispatch(VECASM_DISPATCH_ISA);
+        vecasm_dense_fns fns;
+        vecasm_resolve_dense(&fns, n);
+        CHECK(fns.dot != NULL && fns.sum != NULL && fns.axpy != NULL);
+        float rd = fns.dot(a, b, n);
+        vecasm_set_backend(VECASM_BACKEND_SCALAR);
+        CHECK(approx_eq(rd, vecasm_dot_f32(a, b, n), 1e-3f));
+        printf("resolve dense backends: dot=%s sum=%s axpy=%s\n",
+               vecasm_backend_name(fns.backend_dot), vecasm_backend_name(fns.backend_sum),
+               vecasm_backend_name(fns.backend_axpy));
+    }
+
     free(a);
     free(b);
     free(y);
